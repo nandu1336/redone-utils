@@ -1,14 +1,15 @@
 import asyncio
 import websockets
-# from config import logger
-import logging as logger
 import config
 import logging
 import json
+from config import logger
+
+import time
 
 
 class Broker:
-    def __init__(self, host, port):
+    def __init__(self, host=None, port=None):
         self.host = host or config.HOST
         self.port = port or config.PORT
         self.subscribers = set()
@@ -22,27 +23,40 @@ class Broker:
 
     async def socket_handler(self, connection, request_path):
         logger.info("second parameter:{}".format(request_path))
-        async for message in connection:
-            await self.process(message, connection)
 
-    async def process(self, message, connection):
+        await connection.send("Hey welcome !!!")
+        async for message in connection:
+            print("message after parsing:", message)
+
+            if isinstance(message, bytes):
+                message = message.decode()
+
+            if "{" in message:
+                message = json.loads(message)
+
+                if message['client_type'] == config.SUBSCRIBER:
+                    await self.register_subscriber(message, connection)
+
+                elif message['client_type'] == config.PUBLISHER:
+                    await self.publish(message, connection)
+
+    async def process_message(self, message):
         logging.info("message in process:", message)
 
-        if isinstance(message, bytes):
-            message = message.decode()
+        return message
 
-        if "{" in message:
-            message = json.loads(message)
-            print("message after parsing:", message,
-                  message['client_type'], message['client_type'] == config.SUBSCRIBER)
-            if message['client_type'] == config.SUBSCRIBER:
-                print(
-                    "invoking register-subscriber with {}, {}".format(message, connection))
-                await self.register_subscriber(message, connection)
-            elif message['client_type'] == config.PUBLISHER:
-                await self.register_publisher(message, connection)
+    async def register_subscriber(self, message, connection):
+        channel = message['channel']
+        logger.info("New subscriber added to {}".format(channel))
+        if connection:
+            self.subscribers.add(connection)
+        pass
 
-    def register_subscriber(self, message, connection):
+    async def publish(self, message, connection):
+        logger.info("Publishing to {}".format(message['channel']))
+        if connection:
+            self.broadcast(message)
+        pass
 
 
 asyncio.run(Broker().serve())
